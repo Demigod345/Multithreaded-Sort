@@ -81,9 +81,9 @@ python3 plot.py -f benchmark.csv
 | Name              | Enrollment Number        |
 |-------------------|--------------------------|
 | Divyansh Jain     | 22114032                 |
-| Ishan Garg        |                          |
-| Sukrit Jindal     |                          |
-| Vyusti Singamsetti|                          |
+| Ishan Garg        | 22125012                 |
+| Sukrit Jindal     | 22125037                 |
+| Vyusti Singamsetti| 21112108                 |
 
 ---
 
