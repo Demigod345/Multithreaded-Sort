@@ -76,11 +76,14 @@ python3 plot.py -f benchmark.csv
 
 ---
 
-## Future Work
+## Group Members
 
-- [ ] Add quicksort-based variant
-- [ ] Adaptive load balancing across threads
-- [ ] Lock-free queue support for ThreadPool
+| Name              | Enrollment Number        |
+|-------------------|--------------------------|
+| Divyansh Jain     | 22114032                 |
+| Ishan Garg        |                          |
+| Sukrit Jindal     |                          |
+| Vyusti Singamsetti|                          |
 
 ---
 
