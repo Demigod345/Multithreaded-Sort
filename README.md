@@ -59,10 +59,10 @@ python3 plot.py -f benchmark.json
 ### Output Visualization
 
 #### Linear Scale
-![Benchmark Graph - Linear Scale](output.png)
+![Benchmark Graph - Linear Scale](output_log.png)
 
 #### Logarithmic Scale
-![Benchmark Graph - Logarithmic Scale](output_log.png)
+![Benchmark Graph - Logarithmic Scale](output.png)
 
 ---
 
