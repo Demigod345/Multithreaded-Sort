@@ -5,13 +5,15 @@
 #include <condition_variable>
 #include <memory>
 #include <algorithm>
-#include <vector> // Added for priority queue underlying container
-#include <thread> // Added for std::thread
-#include <utility> // Added for std::forward, std::move, std::bind
+#include <vector>
+#include <thread>
+#include <utility>
 
 
 struct TaskWithPriority {
-    int priority; // Lower number = higher priority
+    // Define a special struct for tasks with priority as a parameter
+    // lower value = higher priority
+    int priority;
     std::function<void()> task;
     bool operator>(const TaskWithPriority& other) const {
         return priority > other.priority;
@@ -20,6 +22,8 @@ struct TaskWithPriority {
 
 template <typename T>
 class SafeQueue {
+    // implements a task queue which supports synchronised updates and accesses
+    // uses mutex and CVs to achieve synchronisation
 private:
     std::queue<T> q;
     std::condition_variable cv;
@@ -68,6 +72,8 @@ private:
     std::mutex mtx;
 
 public:
+    // implements a priority-based task queue which supports synchronised updates and accesses
+    // uses mutex and CVs to achieve synchronisation
     void push(T val) {
         std::lock_guard<std::mutex> lock(mtx);
         pq.push(std::move(val));
@@ -108,7 +114,7 @@ private:
     int m_threads;
     std::vector<std::thread> threads;
     SafeQueue<std::function<void()>> tasks;
-    std::atomic<bool> stop;
+    std::atomic<bool> stop; // identifies when execution stops
 
 public:
     explicit ThreadPool(int numThreads) : m_threads(numThreads), stop(false) {
@@ -116,12 +122,13 @@ public:
         for (int i = 0; i < m_threads; i++) {
             threads.emplace_back([this] {
                 while (!stop) {
+                    // Tries to pop a task from the task queue
                     std::function<void()> task;
                     tasks.try_pop(task);
                     if (task) {
-                        task();
+                        task(); // Runs task if available
                     } else {
-                        std::this_thread::yield(); // Nothing to do, yield CPU
+                        std::this_thread::yield(); // Nothing to do, yields CPU
                     }
                 }
             });
@@ -145,7 +152,7 @@ public:
         
         std::future<return_type> res = task->get_future();
 
-        tasks.push([task]() -> void { (*task)(); });
+        tasks.push([task]() -> void { (*task)(); }); // Moves task to queue
 
         return res;
     }
@@ -165,11 +172,12 @@ public:
         for (int i = 0; i < m_threads; ++i) {
             threads.emplace_back([this] {
                 while (!stop) {
+                    // Tries to pop a task from the task priority queue
                     TaskWithPriority task_item;
                     if (tasks.try_pop(task_item)) {
-                        task_item.task();
+                        task_item.task(); // Runs task if available
                     } else {
-                        std::this_thread::yield(); // Nothing to do, yield CPU
+                        std::this_thread::yield(); // Nothing to do, yields CPU
                     }
                 }
             });
@@ -178,7 +186,7 @@ public:
 
     ~PriorityThreadPool() {
         stop = true;
-        tasks.shutdown(); // <--- important
+        tasks.shutdown();
         for (auto& th : threads) {
             if (th.joinable()) {
                 th.join();
@@ -186,27 +194,21 @@ public:
         }
     }
 
-    // ExecuteTask now takes a priority
     template<class F, class... Args>
     auto ExecuteTask(int priority, F&& f, Args&&... args) -> std::future<decltype(f(args...))> {
         using return_type = decltype(f(args...));
 
-        // Create a packaged_task
         auto task_ptr = std::make_shared<std::packaged_task<return_type()>>(
             std::bind(std::forward<F>(f), std::forward<Args>(args)...)
         );
 
-        // Get the future associated with the packaged_task
         std::future<return_type> res = task_ptr->get_future();
 
-        // Create the TaskWithPriority object
         TaskWithPriority task_item;
         task_item.priority = priority;
-        // Wrap the packaged_task execution in a lambda
         task_item.task = [task_ptr]() { (*task_ptr)(); };
 
-        // Push the TaskWithPriority object into the safe priority queue
-        tasks.push(std::move(task_item)); // Use move
+        tasks.push(std::move(task_item)); // Moves task to priority queue after initialising TaskWithPriority object
 
         return res;
     }
@@ -229,11 +231,11 @@ class PMThreadPool {
                 threads.emplace_back([this, i]() {
                     while (!stop) {
                         std::function<void()> task;
-                        // Try to pop from own queue
+                        // Tries to pop a task from its own task queue
                         if (task_queues[i]->try_pop(task)) {
                             task();
                         } else {
-                            // Try to steal from others
+                            // Tries to steal from others' task queue
                             bool stolen = false;
                             for (int j = 0; j < m_threads; ++j) {
                                 if (j != i && task_queues[j]->try_pop(task)) {
@@ -243,7 +245,7 @@ class PMThreadPool {
                                 }
                             }
                             if (!stolen) {
-                                std::this_thread::yield(); // Nothing to do, yield CPU
+                                std::this_thread::yield(); // Nothing to do, yields CPU
                             }
                         }
                     }
@@ -269,9 +271,8 @@ class PMThreadPool {
     
             std::future<return_type> res = task->get_future();
     
-            // Randomly pick a thread's queue to push into
-            int idx = rand() % m_threads;
-            task_queues[idx]->push([task]() { (*task)(); });
+            int idx = rand() % m_threads; // Chooses random thread to push task
+            task_queues[idx]->push([task]() { (*task)(); }); // Moves task to chosen thread's queue
     
             return res;
         }
