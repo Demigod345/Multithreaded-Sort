@@ -7,11 +7,20 @@ Visualize the speedup and efficiency of multithreaded sorting with auto-generate
 
 ## Features
 
-- ✅ Multithreaded merge sort using a custom thread pool
-- ✅ Custom `ThreadPool` implementation using condition variables and `std::function`
-- ✅ Google Benchmark integration for rigorous performance testing
-- ✅ CSV export of benchmark results
-- ✅ Python script to visualize performance graphs
+- **Multiple Merge Sort Variants**
+  - Standard library sort (for reference)
+  - Classic sequential merge sort
+  - Naive parallel merge sort (spawns a thread at each recursive call)
+  - OpenMP optimised merge sort
+  - Parallel merge sort using custom thread pools with load balancing
+- **Thread Pool Implementation**
+  - Efficient task management with minimal thread creation overhead
+  - Safe queueing and graceful shutdown
+- **Benchmarking**
+  - Uses Google Benchmark to compare performance across implementations and input sizes
+  - Exporting of benchmark results to CSV / JSON formats
+- **Visualization**
+  - Python plotting script to analyze and compare timing results, both in normal and logarithmic scale
 
 ---
 
@@ -23,26 +32,18 @@ git clone https://github.com/Demigod345/Multithreaded-Sort.git
 cd Multithreaded-Sort
 ```
 
-### 2. Install Google Benchmark
-
-Follow official instructions here:  
- [Google Benchmark Installation Guide](https://github.com/google/benchmark#installation)
-
-Make sure to build with `-DBENCHMARK_ENABLE_GTEST_TESTS=OFF` to skip tests.
-
 ---
 
 ## Build & Run
 
-### Compile the program:
+### Compile the program using the makefile (Ensure Homebrew is installed, and can download Google Benchmark and OpenMP):
 ```bash
-g++ merge_sort.cpp -std=c++11 -isystem benchmark/include \
-  -Lbenchmark/build/src -lbenchmark -lpthread -o merge_sort
+make
 ```
 
 ### Run the benchmark and export results:
 ```bash
-./merge_sort --benchmark_format=csv > benchmark.csv
+./merge_sort --benchmark_format=json > benchmark.json
 ```
 
 ---
@@ -52,7 +53,7 @@ g++ merge_sort.cpp -std=c++11 -isystem benchmark/include \
 Use the provided Python script to generate graphs:
 
 ```bash
-python3 plot.py -f benchmark.csv
+python3 plot.py -f benchmark.json
 ```
 
 ### Output Visualization
@@ -67,23 +68,23 @@ python3 plot.py -f benchmark.csv
 
 ## Files
 
-| File         | Description                            |
-|--------------|----------------------------------------|
-| `merge_sort.cpp` | Core multithreaded merge sort logic   |
-| `thread_pool.h`   | ThreadPool with task queue + CV logic |
-| `plot.py`        | Graphs runtime from CSV benchmark     |
-| `benchmark.csv`  | Output benchmark (auto-generated)     |
+| File             | Description                                        |
+|------------------|----------------------------------------------------|
+| `merge_sort.cpp` | Core multithreaded merge sort logic                |
+| `thread_pool.h`  | ThreadPool with task queue + synchronisation logic |
+| `plot.py`        | Graphs runtime from benchmark results file         |
+| `benchmark.csv`  | Output benchmark (auto-generated)                  |
 
 ---
 
 ## Group Members
 
-| Name              | Enrollment Number        |
-|-------------------|--------------------------|
-| Divyansh Jain     | 22114032                 |
-| Ishan Garg        | 22125012                 |
-| Sukrit Jindal     | 22125037                 |
-| Vyusti Singamsetti| 21112108                 |
+| Name               | Enrollment Number        |
+|--------------------|--------------------------|
+| Divyansh Jain      | 22114032                 |
+| Ishan Garg         | 22125012                 |
+| Sukrit Jindal      | 22125037                 |
+| Vyusti Singamsetti | 21112108                 |
 
 ---
 
