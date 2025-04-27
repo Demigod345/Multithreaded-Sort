@@ -100,7 +100,7 @@ void priorityMergeSort(std::vector<T>& vec, int left, int right, int depth, Prio
 template <typename T>
 void OMPParallelMergeSort(std::vector<T>& vec, int left, int right) {
     // To control number of threads spawned
-    if (depth <= 0 || right - left <= 1000) {
+    if (right - left <= 1000) {
         mergeSort(vec, left, right);
         return;
     }
