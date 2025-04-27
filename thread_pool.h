@@ -19,7 +19,7 @@ struct TaskWithPriority {
 };
 
 template <typename T>
-class Safe_Queue {
+class SafeQueue {
 private:
     std::queue<T> q;
     std::condition_variable cv;
@@ -40,15 +40,23 @@ public:
         return front;
     }
 
-    void emplace(T const& val) {
-        std::lock_guard<std::mutex> lock(mtx);
-        q.emplace(val);
-        cv.notify_one();
-    }
-
     bool empty() {
         std::lock_guard<std::mutex> lock(mtx);
         return q.empty();
+    }
+
+    bool try_pop(T& val) {
+        std::lock_guard<std::mutex> lock(mtx);
+        if (q.empty())
+            return false;
+        val = q.front();
+        q.pop();
+        return true;
+    }
+
+    void shutdown() {
+        std::lock_guard<std::mutex> lock(mtx);
+        cv.notify_all();
     }
 };
 
@@ -58,7 +66,6 @@ private:
     std::priority_queue<T, std::vector<T>, std::greater<T>> pq;
     std::condition_variable cv;
     std::mutex mtx;
-    bool stop = false; // Add this
 
 public:
     void push(T val) {
@@ -69,20 +76,24 @@ public:
 
     T pop() {
         std::unique_lock<std::mutex> uLock(mtx);
-        cv.wait(uLock, [this] { return stop || !pq.empty(); });
-
-        if (stop && pq.empty()) {
-            throw std::runtime_error("Queue stopped");
-        }
+        cv.wait(uLock, [this] { return !pq.empty(); });
 
         T top_task = std::move(const_cast<T&>(pq.top()));
         pq.pop();
         return top_task;
     }
 
+    bool try_pop(T& val) {
+        std::lock_guard<std::mutex> lock(mtx);
+        if (pq.empty())
+            return false;
+        val = pq.top();
+        pq.pop();
+        return true;
+    }
+
     void shutdown() {
         std::lock_guard<std::mutex> lock(mtx);
-        stop = true;
         cv.notify_all();
     }
 
@@ -96,39 +107,33 @@ class ThreadPool {
 private:
     int m_threads;
     std::vector<std::thread> threads;
-    Safe_Queue<std::function<void()>> tasks;
-    std::mutex mtx;
-    std::condition_variable cv;
-    bool stop;
+    SafeQueue<std::function<void()>> tasks;
+    std::atomic<bool> stop;
 
 public:
     explicit ThreadPool(int numThreads) : m_threads(numThreads), stop(false) {
+        threads.resize(m_threads);
         for (int i = 0; i < m_threads; i++) {
             threads.emplace_back([this] {
-                std::function<void()> task;
-                while (1) {
-                    std::unique_lock<std::mutex> lock(mtx);
-                    cv.wait(lock, [this] {
-                        return !tasks.empty() || stop;
-                        });
-                    if (stop)
-                        return;
-                    task = std::move(tasks.pop());
-                    lock.unlock();
-                    task();
+                while (!stop) {
+                    std::function<void()> task;
+                    tasks.try_pop(task);
+                    if (task) {
+                        task();
+                    } else {
+                        std::this_thread::yield(); // Nothing to do, yield CPU
+                    }
                 }
-                });
+            });
         }
     }
 
     ~ThreadPool() {
-        std::unique_lock<std::mutex> lock(mtx);
         stop = true;
-        lock.unlock();
-        cv.notify_all();
-
+        tasks.shutdown();
         for (auto& th : threads) {
-            th.join();
+            if (th.joinable())
+                th.join();
         }
     }
 
@@ -137,13 +142,11 @@ public:
         using return_type = decltype(f(args...));
         auto task = std::make_shared<std::packaged_task<return_type()>>(
             std::bind(std::forward<F>(f), std::forward<Args>(args)...));
-
+        
         std::future<return_type> res = task->get_future();
 
-        std::unique_lock<std::mutex> lock(mtx);
-        tasks.emplace([task]() -> void { (*task)(); });
-        lock.unlock();
-        cv.notify_one();
+        tasks.push([task]() -> void { (*task)(); });
+
         return res;
     }
 };
@@ -154,32 +157,27 @@ private:
     int m_threads;
     std::vector<std::thread> threads;
     SafePriorityQueue<TaskWithPriority> tasks;
-    std::mutex pool_mutex; 
-    std::condition_variable pool_cv; 
-    bool stop;
+    std::atomic<bool> stop;
 
 public:
      explicit PriorityThreadPool(int numThreads) : m_threads(numThreads), stop(false) {
+        threads.resize(m_threads);
         for (int i = 0; i < m_threads; ++i) {
             threads.emplace_back([this] {
-                TaskWithPriority task_item;
-                while (true) {
-                   try {
-                        task_item = tasks.pop();
-                    } catch (const std::runtime_error&) {
-                        return; 
+                while (!stop) {
+                    TaskWithPriority task_item;
+                    if (tasks.try_pop(task_item)) {
+                        task_item.task();
+                    } else {
+                        std::this_thread::yield(); // Nothing to do, yield CPU
                     }
-                    task_item.task();
-                            }
-                        });
                 }
+            });
+        }
     }
 
     ~PriorityThreadPool() {
-        {
-            std::unique_lock<std::mutex> lock(pool_mutex);
-            stop = true;
-        }
+        stop = true;
         tasks.shutdown(); // <--- important
         for (auto& th : threads) {
             if (th.joinable()) {
@@ -214,3 +212,67 @@ public:
     }
 };
 
+class PMThreadPool {
+    private:
+        int m_threads;
+        std::vector<std::thread> threads;
+        std::vector<std::unique_ptr<SafeQueue<std::function<void()>>>> task_queues;
+        std::atomic<bool> stop;
+    
+    public:
+        explicit PMThreadPool(int numThreads) : m_threads(numThreads), stop(false) {
+            task_queues.resize(m_threads);
+            for (int i = 0; i < m_threads; ++i) {
+                task_queues[i] = std::make_unique<SafeQueue<std::function<void()>>>();
+            }
+            for (int i = 0; i < m_threads; ++i) {
+                threads.emplace_back([this, i]() {
+                    while (!stop) {
+                        std::function<void()> task;
+                        // Try to pop from own queue
+                        if (task_queues[i]->try_pop(task)) {
+                            task();
+                        } else {
+                            // Try to steal from others
+                            bool stolen = false;
+                            for (int j = 0; j < m_threads; ++j) {
+                                if (j != i && task_queues[j]->try_pop(task)) {
+                                    stolen = true;
+                                    task();
+                                    break;
+                                }
+                            }
+                            if (!stolen) {
+                                std::this_thread::yield(); // Nothing to do, yield CPU
+                            }
+                        }
+                    }
+                });
+            }
+        }
+    
+        ~PMThreadPool() {
+            stop = true;
+            for (auto& queue : task_queues) {
+                queue->shutdown();
+            }
+            for (auto& th : threads) {
+                th.join();
+            }
+        }
+    
+        template<class F, class... Args>
+        auto ExecuteTask(F&& f, Args&&... args) -> std::future<decltype(f(args...))> {
+            using return_type = decltype(f(args...));
+            auto task = std::make_shared<std::packaged_task<return_type()>>(
+                std::bind(std::forward<F>(f), std::forward<Args>(args)...));
+    
+            std::future<return_type> res = task->get_future();
+    
+            // Randomly pick a thread's queue to push into
+            int idx = rand() % m_threads;
+            task_queues[idx]->push([task]() { (*task)(); });
+    
+            return res;
+        }
+    };
